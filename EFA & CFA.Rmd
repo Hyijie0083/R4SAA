@@ -1,0 +1,141 @@
+```{r}
+#加载包
+library(tidyverse)
+library(lavaan)
+library(sjPlot)
+library(EFAtools)
+library(dplyr)
+library(bruceR)
+library(here)
+library(tidyverse)
+library(psych)
+library(semPlot)
+```
+
+
+```{r}
+data=bruceR::import(here::here("app.sav"))
+```
+
+
+```{r}
+#数据处理
+data_1=data %>% dplyr::select(!(index:Q3))
+```
+
+```{r}
+##############
+#  项目分析  #
+#############
+
+#计算总分
+data_2=data_1 %>% dplyr::mutate(total_score=rowSums(select(.,Q4:Q46))) %>%
+  arrange(desc(total_score))
+
+#划分27%的位置
+boundary= quantile(data_2$total_score,c(0.27,0.73))
+
+#建立高低分组
+data_3=data_2 %>% dplyr::mutate(group=case_when(total_score > boundary[2] ~ "high",
+                                                total_score < boundary[1] ~ "low",
+                                                TRUE ~ "middle")) %>%
+  dplyr::filter(group!= "middle")
+
+
+#计算CR值
+CR_value=c()
+for(item in names(data_3)[grep("Q",names(data_3))]){
+    high_score= mean(data_3[[item]][data_3$group == "high"])
+    low_score= mean(data_3[[item]][data_3$group == "low"])
+   
+    CR= abs(high_score - low_score)
+    CR_value= c(CR_value, CR)
+}
+print(CR_value)
+
+#对每个项目进行t检验，决断值
+significant_items=c()
+CR_value=c()
+for(item in names(data_3)[grep("Q",names(data_3))]){
+    high_score= data_3[[item]][data_3$group == "high"]
+    low_score= data_3[[item]][data_3$group == "low"]
+    t_test=t.test(high_score,low_score)
+    
+    if(t_test$p.value < 0.05){
+      significant_items=c (significant_items, item)
+    }
+}
+print(significant_items)
+
+
+#题总相关
+significant_co=c()
+for(item in names(data_2)[grep("Q",names(data_2))]){
+  correlation= cor(data_2[[item]], data_2$total_score)
+  
+  if(correlation>= 0.3){
+    significant_co =c(significant_co,item)
+  }
+}
+print(significant_co)
+
+```
+
+```{r}
+#查看难度，区分度
+sjt.itemanalysis(data_1)
+```
+
+
+```{r}
+##############
+## EFA 检验 ##
+#############
+
+#数据处理
+data_efa=data_1 %>%
+  dplyr::select(!(c("Q12","Q7","Q39","Q6","Q27","Q38","Q40","Q45","Q30","Q21","Q14","Q8","Q41","Q44","Q24","Q32","Q11","Q13","Q43","Q10","Q18","Q19")))
+```
+```{r}
+#KMO与球型度检验
+EFAtools::KMO(data_efa)
+EFAtools::BARTLETT(data_efa)
+myparallel = fa.parallel(data_efa, fa = "fa",  n.iter = 500) #最大似然法
+myparallel$fa.values
+```
+
+```{r}
+#EFA
+data.efa = fa(data_efa, nfactors = 2 , rotate = "varimax", fm = "wls")
+data.efa
+```
+
+```{r}
+#因子载荷
+loadings <- data.efa$loadings
+print(loadings,cut=0.35)
+```
+
+```{R}
+##############
+## CFA 检验 ##
+#############
+
+model=   "dim1 =~ Q4+Q5+Q15+Q16+Q17+Q20+Q22+Q23
+         dim2 =~ Q9+Q25+Q26+Q28+Q29+Q31+Q33+Q34+Q35+Q36+Q37+Q42+Q46"
+cfafit=cfa(model, data_1)
+summary(cfafit, standardized = T, fit.measures= T)
+semPaths(cfafit, what = "stand",layout = "tree")
+```
+
+```{r}
+####################
+## 内部一致性检验 ##
+###################
+data_end = data_efa
+alpha_result= psych::alpha(data_end)
+print(alpha_result)
+
+```
+
+
